@@ -20,7 +20,7 @@
     <script src="../../_static/js/theme.js"></script>
     <link rel="index" title="Index" href="../../genindex.html" />
     <link rel="search" title="Search" href="../../search.html" />
-    <link rel="next" title="slothy.targets.query" href="slothy.targets.query.html" />
+    <link rel="next" title="slothy.targets.aarch64" href="slothy.targets.aarch64.html" />
     <link rel="prev" title="slothy.targets.arm_v81m.arch_v81m" href="slothy.targets.arm_v81m.arch_v81m.html" /> 
 </head>
 
@@ -60,8 +60,9 @@
 <li class="toctree-l1 current"><a class="reference internal" href="../index.html">API Reference</a><ul class="current">
 <li class="toctree-l2 current"><a class="reference internal" href="slothy.html"><code class="xref py py-mod docutils literal notranslate"><span class="pre">slothy</span></code></a><ul class="current">
 <li class="toctree-l3 current"><a class="reference internal" href="slothy.html#subpackages">Subpackages</a><ul class="current">
-<li class="toctree-l4 current"><a class="reference internal" href="slothy.targets.html"><code class="xref py py-mod docutils literal notranslate"><span class="pre">slothy.targets</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="slothy.cli.html"><code class="xref py py-mod docutils literal notranslate"><span class="pre">slothy.cli</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="slothy.core.html"><code class="xref py py-mod docutils literal notranslate"><span class="pre">slothy.core</span></code></a></li>
+<li class="toctree-l4 current"><a class="reference internal" href="slothy.targets.html"><code class="xref py py-mod docutils literal notranslate"><span class="pre">slothy.targets</span></code></a></li>
 </ul>
 </li>
 <li class="toctree-l3"><a class="reference internal" href="slothy.html#submodules">Submodules</a></li>
@@ -130,16 +131,13 @@
 <tr class="row-even"><td><p><a class="reference internal" href="#slothy.targets.arm_v81m.helium_experimental.find_class" title="slothy.targets.arm_v81m.helium_experimental.find_class"><code class="xref py py-obj docutils literal notranslate"><span class="pre">find_class</span></code></a></p></td>
 <td></td>
 </tr>
-<tr class="row-odd"><td><p><a class="reference internal" href="#slothy.targets.arm_v81m.helium_experimental.lookup_multidict" title="slothy.targets.arm_v81m.helium_experimental.lookup_multidict"><code class="xref py py-obj docutils literal notranslate"><span class="pre">lookup_multidict</span></code></a></p></td>
+<tr class="row-odd"><td><p><a class="reference internal" href="#slothy.targets.arm_v81m.helium_experimental.get_latency" title="slothy.targets.arm_v81m.helium_experimental.get_latency"><code class="xref py py-obj docutils literal notranslate"><span class="pre">get_latency</span></code></a></p></td>
 <td></td>
 </tr>
-<tr class="row-even"><td><p><a class="reference internal" href="#slothy.targets.arm_v81m.helium_experimental.get_latency" title="slothy.targets.arm_v81m.helium_experimental.get_latency"><code class="xref py py-obj docutils literal notranslate"><span class="pre">get_latency</span></code></a></p></td>
+<tr class="row-even"><td><p><a class="reference internal" href="#slothy.targets.arm_v81m.helium_experimental.get_units" title="slothy.targets.arm_v81m.helium_experimental.get_units"><code class="xref py py-obj docutils literal notranslate"><span class="pre">get_units</span></code></a></p></td>
 <td></td>
 </tr>
-<tr class="row-odd"><td><p><a class="reference internal" href="#slothy.targets.arm_v81m.helium_experimental.get_units" title="slothy.targets.arm_v81m.helium_experimental.get_units"><code class="xref py py-obj docutils literal notranslate"><span class="pre">get_units</span></code></a></p></td>
-<td></td>
-</tr>
-<tr class="row-even"><td><p><a class="reference internal" href="#slothy.targets.arm_v81m.helium_experimental.get_inverse_throughput" title="slothy.targets.arm_v81m.helium_experimental.get_inverse_throughput"><code class="xref py py-obj docutils literal notranslate"><span class="pre">get_inverse_throughput</span></code></a></p></td>
+<tr class="row-odd"><td><p><a class="reference internal" href="#slothy.targets.arm_v81m.helium_experimental.get_inverse_throughput" title="slothy.targets.arm_v81m.helium_experimental.get_inverse_throughput"><code class="xref py py-obj docutils literal notranslate"><span class="pre">get_inverse_throughput</span></code></a></p></td>
 <td></td>
 </tr>
 </tbody>
@@ -173,7 +171,7 @@
 
 <dl class="py class">
 <dt class="sig sig-object py" id="slothy.targets.arm_v81m.helium_experimental.ExecutionUnit">
-<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">slothy.targets.arm_v81m.helium_experimental.</span></span><span class="sig-name descname"><span class="pre">ExecutionUnit</span></span><a class="headerlink" href="#slothy.targets.arm_v81m.helium_experimental.ExecutionUnit" title="Link to this definition"></a></dt>
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">slothy.targets.arm_v81m.helium_experimental.</span></span><span class="sig-name descname"><span class="pre">ExecutionUnit</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">args</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwds</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#slothy.targets.arm_v81m.helium_experimental.ExecutionUnit" title="Link to this definition"></a></dt>
 <dd><p>Bases: <code class="xref py py-obj docutils literal notranslate"><span class="pre">enum.Enum</span></code></p>
 <dl class="py attribute">
 <dt class="sig sig-object py" id="slothy.targets.arm_v81m.helium_experimental.ExecutionUnit.SCALAR">
@@ -253,11 +251,6 @@
 <dd></dd></dl>
 
 <dl class="py function">
-<dt class="sig sig-object py" id="slothy.targets.arm_v81m.helium_experimental.lookup_multidict">
-<span class="sig-prename descclassname"><span class="pre">slothy.targets.arm_v81m.helium_experimental.</span></span><span class="sig-name descname"><span class="pre">lookup_multidict</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">d</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">k</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">default</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#slothy.targets.arm_v81m.helium_experimental.lookup_multidict" title="Link to this definition"></a></dt>
-<dd></dd></dl>
-
-<dl class="py function">
 <dt class="sig sig-object py" id="slothy.targets.arm_v81m.helium_experimental.get_latency">
 <span class="sig-prename descclassname"><span class="pre">slothy.targets.arm_v81m.helium_experimental.</span></span><span class="sig-name descname"><span class="pre">get_latency</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">src</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">out_idx</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">dst</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#slothy.targets.arm_v81m.helium_experimental.get_latency" title="Link to this definition"></a></dt>
 <dd></dd></dl>
@@ -281,7 +274,7 @@
           </div>
           <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
         <a href="slothy.targets.arm_v81m.arch_v81m.html" class="btn btn-neutral float-left" title="slothy.targets.arm_v81m.arch_v81m" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
-        <a href="slothy.targets.query.html" class="btn btn-neutral float-right" title="slothy.targets.query" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+        <a href="slothy.targets.aarch64.html" class="btn btn-neutral float-right" title="slothy.targets.aarch64" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
     </div>
 
   <hr/>
