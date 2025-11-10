@@ -64,6 +64,14 @@ class RegisterType(Enum):
     def __repr__(self):
         return self.name
 
+    @cache
+    def _spillable(reg_type):
+        return reg_type in [RegisterType.GPR, RegisterType.MVE]
+
+    # TODO: remove workaround (needed for Python 3.9)
+    spillable = staticmethod(_spillable)
+
+
     @staticmethod
     def is_renamed(ty):
         """Indicate if register type should be subject to renaming"""
@@ -339,6 +347,7 @@ class Instruction:
                 vstrw_with_writeback,
                 vstrw_with_post,
                 vstrw_scatter,
+                vstrw_scatter_writeback,
                 vstrw_scatter_uxtw,
                 vstrb,
                 vstrb_no_imm,
@@ -441,6 +450,7 @@ class Instruction:
                 vstrw_with_writeback,
                 vstrw_with_post,
                 vstrw_scatter,
+                vstrw_scatter_writeback,
                 vstrw_scatter_uxtw,
                 vstrb,
                 vstrb_no_imm,
@@ -988,6 +998,15 @@ class add(MVEInstruction):
     inputs = ["Rn", "Rm"]
     outputs = ["Rd"]
 
+class eor(MVEInstruction):
+    pattern = "eor <Rd>, <Rn>, <Rm>"
+    inputs = ["Rn", "Rm"]
+    outputs = ["Rd"]
+
+class bic(MVEInstruction):
+    pattern = "bic <Rd>, <Rn>, <Rm>"
+    inputs = ["Rn", "Rm"]
+    outputs = ["Rd"]
 
 class sub(MVEInstruction):
     pattern = "sub <Rd>, <Rn>, <Rm>"
@@ -1288,6 +1307,16 @@ class vmov_double_v2r(MVEInstruction):
     inputs = ["Qd", "Qa"]
     outputs = ["Rt0", "Rt1"]
 
+class vmov_double_r2v(MVEInstruction):
+    pattern = "vmov <Qd>[<index0>], <Qa>[<index1>], <Rt0>, <Rt1>"
+    inputs = ["Rt0", "Rt1"]
+    in_outs = ["Qd", "Qa"]
+
+    @classmethod
+    def make(cls, src):
+        obj = MVEInstruction.build(cls, src)
+        obj.detected_vmov_r2v_pair = False
+        return obj
 
 class mov(MVEInstruction):
     pattern = "mov <Rd>, <Rm>"
@@ -1367,6 +1396,12 @@ class vshllt(MVEInstruction):
 
 class vsli(MVEInstruction):
     pattern = "vsli.<dt> <Qd>, <Qm>, <imm>"
+    inputs = ["Qm"]
+    in_outs = ["Qd"]
+
+
+class vsri(MVEInstruction):
+    pattern = "vsri.<dt> <Qd>, <Qm>, <imm>"
     inputs = ["Qm"]
     in_outs = ["Qd"]
 
@@ -1576,6 +1611,18 @@ class vstrw_with_post(MVEInstruction):
         obj.pre_index = None
         return obj
 
+class vstrw_scatter_writeback(MVEInstruction):
+    pattern = "vstrw.<dt> <Qd>, [<Qm>, <imm>]!"
+    inputs = ["Qd"]
+    in_outs = ["Qm"]
+
+    @classmethod
+    def make(cls, src):
+        obj = MVEInstruction.build(cls, src)
+        obj.increment = obj.immediate
+        obj.pre_index = None
+        obj.addr = obj.args_in_out[0]
+        return obj
 
 class vstrw_scatter(MVEInstruction):
     pattern = "vstrw.<dt> <Qd>, [<Rn>, <Qm>]"
@@ -2434,6 +2481,11 @@ class lsl_imm(MVEInstruction):
     outputs = ["Rd"]
     inputs = ["Rn"]
 
+class ror_imm(MVEInstruction):
+    pattern = "ror <Rd>, <Rn>, <imm>"
+    outputs = ["Rd"]
+    inputs = ["Rn"]
+
 
 class vcmul(MVEInstruction):
     pattern = "vcmul.<fdt> <Qd>, <Qn>, <Qm>, <imm>"
@@ -2568,6 +2620,60 @@ def vqdmlsdh_vqdmladhx_parsing_cb(this_class, other_class):
 
 vqdmlsdh.global_parsing_cb = vqdmlsdh_vqdmladhx_parsing_cb(vqdmlsdh, vqdmladhx)
 vqdmladhx.global_parsing_cb = vqdmlsdh_vqdmladhx_parsing_cb(vqdmladhx, vqdmlsdh)
+
+# Called after a code snippet has been parsed which contains instances
+# of the instruction. We used this to detect the common pattern
+#
+# > vmov out[0], out[2], a, b
+# > vmov out[1], out[3], a, b
+#
+# And change out to an output argument in this case (rather than input/output)
+def vmov_r2v_pair_parsing_cb(this_class):
+    def core(inst, t, log=None):
+        assert isinstance(inst, this_class)
+        succ = None
+
+        # print(f'Got vmov_r2v: {inst.write()} inouts: {len(t.dst_in_out)}: {t.dst_in_out}')
+        
+
+        if inst.detected_vmov_r2v_pair:
+            return False
+
+        # Check if this is the first in a pair of vmov_r2v/vmov_r2v
+        dst_in_out = [ x for x in t.dst_in_out if x ]
+        if len(dst_in_out[0]) >= 1:
+            r = dst_in_out[0][0]
+            if isinstance(r.inst, this_class):
+                if (
+                    r.inst.args_in_out == inst.args_in_out
+                ):
+                    succ = r
+        if succ is None:
+            return False
+
+        # print(f'Got matching vmov_r2v: {succ.inst.write()}')
+        # If so, mark in/out as output only, and signal the need for re-building
+        # the dataflow graph
+        inst.num_out = 2
+        inst.args_out = [inst.args_in_out[0], inst.args_in_out[1]]
+        inst.arg_types_out = [RegisterType.MVE, RegisterType.MVE]
+        inst.args_out_restrictions = inst.args_in_out_restrictions
+        inst.outputs = inst.in_outs
+        inst.pattern_outputs = inst.pattern_in_outs
+
+        inst.num_in_out = 0
+        inst.args_in_out = []
+        inst.in_outs = []
+        inst.pattern_in_outs = []
+        inst.arg_types_in_out = []
+        inst.args_in_out_restrictions = []
+
+        inst.detected_vmov_r2v_pair = True
+        return True
+
+    return core
+
+vmov_double_r2v.global_parsing_cb = vmov_r2v_pair_parsing_cb(vmov_double_r2v)
 
 
 # Returns the list of all subclasses of a class which don't have
