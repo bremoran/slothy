@@ -148,7 +148,7 @@ class RegisterType(Enum):
 
 class LeLoop(Loop):
     """
-    Loop ending in a le instruction.
+    Loop ending in a le/letp instruction.
 
     Example:
 
@@ -156,7 +156,7 @@ class LeLoop(Loop):
 
        loop_lbl:
            {code}
-           le <cnt>, loop_lbl
+           (le|letp) <cnt>, loop_lbl
 
     where cnt is the loop counter in lr.
     """
@@ -164,7 +164,9 @@ class LeLoop(Loop):
     def __init__(self, lbl_start="1", lbl_end="2"):
         super().__init__(lbl_start=lbl_start, lbl_end=lbl_end)
         self.lbl_regex = r"^\s*(?P<label>\w+)\s*:(?P<remainder>.*)$"
-        self.end_regex = (rf"^\s*le\s+((?P<cnt>\w+)|r14)\s*,\s*{lbl_start}",)
+        self.end_regex = (
+            rf"^\s*(?P<instr>le|letp)\s+((?P<cnt>\w+)|r14)\s*,\s*{lbl_start}",
+        )
 
     def start(
         self,
@@ -189,12 +191,12 @@ class LeLoop(Loop):
         yield ".p2align 2"
         yield f"{self.lbl_start}:"
 
-    def end(self, unused, indentation=0):
+    def end(self, other, indentation=0):
         indent = " " * indentation
         lbl_start = self.lbl_start
         if lbl_start.isdigit():
             lbl_start += "b"
-        yield f"{indent}le lr, {lbl_start}"
+        yield f"{indent}{other['instr']} lr, {lbl_start}"
 
 
 class FatalParsingException(Exception):
@@ -1282,6 +1284,12 @@ class vshlc(MVEInstruction):
 class vmov_imm(MVEInstruction):
     pattern = "vmov.<dt> <Qd>, <imm>"
     outputs = ["Qd"]
+
+
+class vmov_vector(MVEInstruction):
+    pattern = "vmov.<dt> <Qd>, <Qm>"
+    outputs = ["Qd"]
+    inputs = ["Qm"]
 
 
 class vmullb(MVEInstruction):

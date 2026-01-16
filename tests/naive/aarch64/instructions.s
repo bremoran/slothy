@@ -13,7 +13,20 @@ shl v0.16b, v1.16b, #4
 shl d2, d3, #8
 sshr v4.16b, v5.16b, #2
 ushr v6.16b, v7.16b, #3
+usra v4.2d, v5.2d, #3
 uxtl v8.8h, v9.8b
+ld1r {v11.2D}, [sp]
+ldr x16, [sp, #4]
+str x16, [sp, #4]
+ld2 { v0.S, v1.S }[1], [x1], #8
+ld2 { v0.S, v1.S}[1], [x1], #8
+ld2 {v0.S, v1.S }[1], [x1], #8
+ld2 {v0.S, v1.S}[1], [x1], #8
+st2 { v0.S, v1.S }[1], [x1], #8
+st2 {v0.s, v1.s }[0], [x11], #8
+st2 { v0.s, v1.s}[0], [x11], #8
+st2 {v0.s, v1.s}[0], [x11], #8
+st2 { v0.S, v1.S }[1], [x1]
 
 zip1 v5.16b, v6.16b, v7.16b
 zip2 v8.16b, v9.16b, v10.16b
@@ -52,10 +65,12 @@ movz x13, #0x1234
 movz x14, #0x5678, lsl #16
 ldr q24, [x3, x12, lsl #4]
 ldr x6, [x3, x12]
+ldr d1, [x2], #32
 clz v0.16b, v0.16b
 cnt v0.16b, v0.16b
 tbl v16.16b, {v16.16b}, v24.16b
 fmov w12, s20
+fcsel d0, d1, d2, eq
 
 // Conditional Compare
 ccmp x0,  x1, #0, eq

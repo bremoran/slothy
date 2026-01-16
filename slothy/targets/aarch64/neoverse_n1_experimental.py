@@ -40,6 +40,7 @@ from slothy.targets.aarch64.aarch64_neon import (
     Ldr_X,
     Str_X,
     Stp_X,
+    Ldr_D,
     Ldr_Q,
     Str_Q,
     Stp_Q,
@@ -96,6 +97,9 @@ from slothy.targets.aarch64.aarch64_neon import (
     fmov_0_force_output,
     fmov_1,
     fmov_1_force_output,
+    q_ldr1_stack,
+    Q_Ld2_Lane_Post_Inc,
+    St2,
 )
 
 issue_rate = 4
@@ -167,7 +171,17 @@ def get_min_max_objective(slothy):
 
 
 execution_units = {
-    (Ldp_X, Ldr_X, Str_X, Stp_X, Ldr_Q, Str_Q, Stp_Q, Ldp_Q): ExecutionUnit.LSU(),
+    (
+        Ldp_X,
+        Ldr_X,
+        Str_X,
+        Stp_X,
+        Ldr_D,
+        Ldr_Q,
+        Str_Q,
+        Stp_Q,
+        Ldp_Q,
+    ): ExecutionUnit.LSU(),
     # TODO: The following would be more accurate, but does not
     #       necessarily lead to better results, while making the
     #       optimization slower. Investigate...
@@ -178,9 +192,10 @@ execution_units = {
     #          [ExecutionUnit.VEC1, ExecutionUnit.LSU0],
     #          [ExecutionUnit.VEC1, ExecutionUnit.LSU1]],
     # TODO: As above, this should somehow occupy both V and L
+    St2: ExecutionUnit.V(),
     St3: ExecutionUnit.V(),
-    ASimdCompare: ExecutionUnit.V(),
     St4: ExecutionUnit.V(),
+    ASimdCompare: ExecutionUnit.V(),
     vtbl: ExecutionUnit.V(),
     (Vzip, Vrev, uaddlp): ExecutionUnit.V(),
     AArch64NeonCount: ExecutionUnit.V(),
@@ -223,10 +238,12 @@ execution_units = {
     vdup: ExecutionUnit.M(),
     # 8B/8H occupies both V0, V1
     vuaddlv_sform: [[ExecutionUnit.VEC0, ExecutionUnit.VEC1]],
+    q_ldr1_stack: ExecutionUnit.V(),
+    Q_Ld2_Lane_Post_Inc: ExecutionUnit.V(),
 }
 
 inverse_throughput = {
-    (Ldr_X, Str_X, Ldr_Q, Str_Q, Ldp_Q): 1,
+    (Ldr_X, Str_X, Ldr_D, Ldr_Q, Str_Q, Ldp_Q): 1,
     (Ldp_X, Stp_X): 2,
     AArch64NeonCount: 1,
     Stp_Q: 2,
@@ -272,12 +289,15 @@ inverse_throughput = {
     (vdup): 1,
     umull_wform: 1,
     vuaddlv_sform: 1,  # 8B/8H
+    q_ldr1_stack: 1,
+    Q_Ld2_Lane_Post_Inc: 2,
+    St2: 2,
 }
 
 default_latencies = {
     # For OOO uArch we use relaxed latency modeling for load instructions
     # since the uArch will heavily front-load them anyway
-    (Ldp_X, Ldr_X, Ldr_Q, Stp_Q, Ldp_Q): 4,
+    (Ldp_X, Ldr_X, Ldr_D, Ldr_Q, Stp_Q, Ldp_Q): 4,
     (Stp_X, Str_X, Str_Q): 2,
     St3: 6,  # Multiple structures, Q form, storing bytes
     St4: 4,
@@ -323,6 +343,9 @@ default_latencies = {
     umull_wform: 2,
     vtbl: 2,
     vuaddlv_sform: 5,  # 8B/8H
+    q_ldr1_stack: 7,
+    Q_Ld2_Lane_Post_Inc: 7,
+    St2: 4,
 }
 
 

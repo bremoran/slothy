@@ -48,9 +48,14 @@ class SourceLine:
     def _extract_comments_from_text(self):
         if "//" not in self._raw:
             return
-        s = list(self._raw.split("//"))
+        # Don't split block comments (they contain markers and may have // in content)
+        if _NEWLINE_MARKER in self._raw:
+            s = self._raw.split("//", 1)
+        else:
+            s = self._raw.split("//")
         self._raw = s[0]
-        self._comments += map(str.lstrip, s[1:])
+        # Preserve whitespace for block comments (with markers), lstrip others
+        self._comments += [c if _NEWLINE_MARKER in c else c.lstrip() for c in s[1:]]
         self._trim_comments()
 
     def _extract_indentation_from_text(self):
@@ -96,7 +101,10 @@ class SourceLine:
         return s
 
     def _strip_comments(self):
-        self._comments = list(map(str.lstrip, self._comments))
+        # Preserve whitespace for block comments (with markers), lstrip others
+        self._comments = [
+            c if _NEWLINE_MARKER in c else c.lstrip() for c in self._comments
+        ]
 
     def _trim_comments(self):
         self._strip_comments()
@@ -205,6 +213,11 @@ class SourceLine:
         """Indicates if the source line constaints some text"""
         return self._raw.strip() != ""
 
+    @staticmethod
+    def instruction_count(lines):
+        """Count the number of instructions in a list of source lines"""
+        return len([line for line in lines if line.has_text()])
+
     @property
     def indentation(self):
         """Returns the current level of indentation for the source line"""
@@ -241,8 +254,7 @@ class SourceLine:
                 if _NEWLINE_MARKER in s:
                     # Restore as multi-line /* */ comment
                     lines = s.split(_NEWLINE_MARKER)
-                    lines = [line.strip() for line in lines]
-                    return "/* " + "\n   ".join(lines) + " */"
+                    return "/*" + "\n".join(lines) + "*/"
                 elif s.startswith(_BLOCK_COMMENT_MARKER):
                     # Restore as single-line /* */ comment
                     return f"/* {s[len(_BLOCK_COMMENT_MARKER):]} */"
@@ -370,9 +382,8 @@ class SourceLine:
                 content = match.group(1)
                 if "\n" in content:
                     # Multi-line /* */ comment - mark newlines
-                    content = content.replace("\n", f" {_NEWLINE_MARKER} ")
-                    content = " ".join(content.split())
-                    return f"// {content}" if content else ""
+                    content = content.replace("\n", _NEWLINE_MARKER)
+                    return f"//{content}" if content.strip() else ""
                 else:
                     # Single-line /* */ comment - mark with prefix
                     content = content.strip()
@@ -693,7 +704,8 @@ class AsmAllocation:
     # TODO: This is conceptionally different and should be
     # handled in its own class.
     _REGEXP_EQU_TXT = (
-        r"\s*\.equ\s+(?P<key>[A-Za-z0-9\_]+)\s*,\s*(?P<val>[A-Za-z0-9()*/+-]+)"
+        r"\s*\.equ\s+(?P<key>[_a-zA-Z][_a-zA-Z0-9]*)\s*,"
+        r"\s*(?P<val>[A-Za-z0-9()*/+\-\_\s]+)"
     )
 
     _REGEXP_REQ_TXT = r"\s*(?P<alias>\w+)\s+\.req\s+(?P<reg>\w+)"
