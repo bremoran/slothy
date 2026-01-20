@@ -85,8 +85,8 @@ class RegisterType(Enum):
     ):
         """Return the list of all registers of a given type"""
 
-        qstack_locations = [f"QSTACK{i}" for i in range(8)]
-        stack_locations = [f"STACK{i}" for i in range(8)] + [
+        qstack_locations = [f"QSTACK{i}" for i in range(64)]
+        stack_locations = [f"STACK{i}" for i in range(64)] + [
             "ROOT0_STACK",
             "ROOT1_STACK",
             "ROOT4_STACK",
@@ -349,6 +349,7 @@ class Instruction:
                 vstrw_with_writeback,
                 vstrw_with_post,
                 vstrw_scatter,
+                vstrw_scatter_pre,
                 vstrw_scatter_writeback,
                 vstrw_scatter_uxtw,
                 vstrb,
@@ -452,6 +453,7 @@ class Instruction:
                 vstrw_with_writeback,
                 vstrw_with_post,
                 vstrw_scatter,
+                vstrw_scatter_pre,
                 vstrw_scatter_writeback,
                 vstrw_scatter_uxtw,
                 vstrb,
@@ -1644,6 +1646,18 @@ class vstrw_scatter(MVEInstruction):
         obj.addr = obj.args_in[1]
         return obj
 
+class vstrw_scatter_pre(MVEInstruction):
+    pattern = "vstrw.<dt> <Qd>, [<Qm>, <imm>]"
+    inputs = ["Qd", "Qm"]
+
+    @classmethod
+    def make(cls, src):
+        obj = MVEInstruction.build(cls, src)
+        obj.increment = None
+        obj.pre_index = obj.immediate
+        obj.addr = obj.args_in[1]
+        return obj
+
 
 class vstrw_scatter_uxtw(MVEInstruction):
     pattern = "vstrw.<dt> <Qd>, [<Rn>, <Qm>, UXTW <imm>]"
@@ -1656,6 +1670,7 @@ class vstrw_scatter_uxtw(MVEInstruction):
         obj.pre_index = None
         obj.addr = obj.args_in[1]
         return obj
+
 
 
 class vstrb(MVEInstruction):
@@ -2724,3 +2739,31 @@ def find_class(src):
         if isinstance(src, inst_class):
             return inst_class
     raise Exception("Couldn't find instruction class")
+
+class Spill:
+    def spill(reg, loc, spill_to_vreg=None):
+        """Generates the instruction text for a spill to either
+        the stack or the FPR. If spill_to_vreg is None (default),
+        the spill goes to the stack. Otherwise, spill_to_vreg must
+        be an integer defining the base of the registers in the FPR
+        which should be used as a stack. For example, passing 8 would
+        spill to s8,s9,.. ."""
+        print(f'spill: {reg} {type(reg)}')
+        if spill_to_vreg is None:
+            return f"str {reg}, [sp, #STACK_LOC_{loc}]"
+        else:
+            vreg_base = int(spill_to_vreg)
+            return f"vmov s{vreg_base+int(loc)}, {reg}"
+
+    def restore(reg, loc, spill_to_vreg=None):
+        """Generates the instruction text for a spill restore from either
+        the stack or the FPR. If spill_to_vreg is None (default),
+        the spill goes to the stack. Otherwise, spill_to_vreg must
+        be an integer defining the base of the registers in the FPR
+        which should be used as a stack. For example, passing 8 would
+        spill to s8,s9,.. ."""
+        if spill_to_vreg is None:
+            return f"ldr {reg}, [sp, #STACK_LOC_{loc}]"
+        else:
+            vreg_base = int(spill_to_vreg)
+            return f"vmov {reg}, s{vreg_base+int(loc)}"

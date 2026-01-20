@@ -15,19 +15,6 @@ target_label_dict = {Target_CortexM55r1: "m55",
 arch = Arch_Armv81M
 target = Target_CortexM55r1
 
-handlers = []
-h_err = logging.StreamHandler(sys.stderr)
-h_err.setLevel(logging.WARNING)
-handlers.append(h_err)
-h_verbose = logging.StreamHandler(sys.stdout)
-h_verbose.setLevel(logging.DEBUG)
-h_verbose.addFilter(lambda r: r.levelno < logging.INFO)
-handlers.append(h_verbose)
-logging.basicConfig(
-    level=logging.DEBUG,
-    handlers=handlers,
-)
-
 slothy = Slothy(arch, target, logger = logging.getLogger("gen_keccak"))
 
 x_names = 'aeiou'
@@ -90,14 +77,48 @@ def sym_AtoB_norot32(rt, o, x, y):
     sym_B = sym(f'B{1-o if r%2 else o}', y, (2*x + 3*y) % 5)
     return sym_A if should_rot32(rt, o, x, y) else sym_B
 
+RCTable = '\n'.join(reversed('''  .long 		0x00000001,	0x00000000
+  .long 		0x00000000,	0x00000089
+  .long 		0x00000000,	0x8000008b
+  .long 		0x00000000,	0x80008080
+
+  .long 		0x00000001,	0x0000008b
+  .long 		0x00000001,	0x00008000
+  .long 		0x00000001,	0x80008088
+  .long 		0x00000001,	0x80000082
+
+  .long 		0x00000000,	0x0000000b
+  .long 		0x00000000,	0x0000000a
+  .long 		0x00000001,	0x00008082
+  .long 		0x00000000,	0x00008003
+
+  .long 		0x00000001,	0x0000808b
+  .long 		0x00000001,	0x8000000b
+  .long 		0x00000001,	0x8000008a
+  .long 		0x00000001,	0x80000081
+
+  .long 		0x00000000,	0x80000081
+  .long 		0x00000000,	0x80000008
+  .long 		0x00000000,	0x00000083
+  .long 		0x00000000,	0x80008003
+
+  .long 		0x00000001,	0x80008088
+  .long 		0x00000000,	0x80000088
+  .long 		0x00000001,	0x00008000
+  .long 		0x00000000,	0x80008082'''.split('\n')))
+
 def gen_keccak():
     rot = mk_rt()
     # s += (rot) + '\n'
     s = f'''
+RCTable:
+     @		0			1
+{RCTable}
+
 .thumb
 .syntax unified
 .text
-BOffsets: .byte {', '.join([f'{20*x}' for x in range(4)])}
+BOffsets: .byte {', '.join([f'{20*x}' for x in range(1,5)])}
 @----------------------------------------------------------------------------
 @
 @ void KeccakF1600_StatePermute_hybrid( void *state )
@@ -107,6 +128,8 @@ BOffsets: .byte {', '.join([f'{20*x}' for x in range(4)])}
 .type KeccakF1600_StatePermute_hybrid,%function
 KeccakF1600_StatePermute_hybrid:
 	push	{{ r4 - r12, lr }}
+    {sym('A0', 0, 0)}    .req r1
+    {sym('A1', 0, 0)}    .req r2
     mov lr, 24
     wls lr, lr, roundend
 roundstart:
@@ -260,7 +283,7 @@ roundstart:
     for o in range(2):
         for x in range(5):
             vA = sym(f'A{o}', x, n_mod_5(1,4))
-            s += (f'    vstrw.32 {vA}, [q<BOR>, #4]!') + '\n'
+            s += (f'    vstrw.32 {vA}, [q<BOR>, #{x*4 + 100 * o}]') + '\n'
     for o in range(2):
         s += (f"    strd {sym(f'A{o}', 1, 0)}, {sym(f'A{o}', 2, 0)}, [r0, #{4+100*o}]") + '\n'
         s += (f"    strd {sym(f'A{o}', 3, 0)}, {sym(f'A{o}', 4, 0)}, [r0, #{12+100*o}]") + '\n'
@@ -277,6 +300,7 @@ roundstart:
     # return A
     # }
     s+=(f'''
+roundend_pre:
     le lr, roundstart
 roundend:
     vpop {{d8-d15}}
@@ -286,41 +310,45 @@ roundend:
 
 def main():
     instructions = gen_keccak()
-    # for line in instructions:
-    #     print(line)
-    print(instructions)
+    # print(instructions)
+    # sys.exit(0)
     slothy.load_source_raw(instructions)
     # first pass: replace symbolic register names by architectural registers
     slothy.config.inputs_are_outputs=True
-    slothy.config.outputs=["A0ba", "A1ba", "r0"]
-    slothy.config.timeout = 60
+    slothy.config.outputs=["A0ba", "A1ba", "r14"]
+    slothy.config.timeout = 10800
     slothy.config.constraints.functional_only = True
     slothy.config.constraints.allow_reordering = False
     slothy.config.constraints.allow_spills = True
     slothy.config.constraints.minimize_spills = True
-    slothy.optimize_loop(loop_lbl='roundstart')
+    slothy.config.variable_size = False
+    slothy.config.constraints.stalls_first_attempt = 1024
+    # slothy.config.ignore_objective = True
+
+    slothy.optimize(start="roundstart", end="roundend_pre")
 
 
     slothy.write_source_to_file("hybrid_keccak_arch-m55.s")
     print("done")
-    # second pass: splitting heuristic
-    slothy.config.timeout = 100
-    slothy.config.constraints.functional_only = False
-    slothy.config.constraints.allow_reordering = True
-    slothy.config.constraints.allow_spills = False
-    slothy.config.absorb_spills = False
-    slothy.config.variable_size=True
-    slothy.config.constraints.stalls_first_attempt=64
-    slothy.config.constraints.stalls_maximum_attempt = 4096
-    slothy.config.split_heuristic = True
-    slothy.config.split_heuristic_stepsize = 0.05
-    slothy.config.split_heuristic_factor = 10
-    slothy.config.split_heuristic_repeat = 2
-    slothy.config.split_heuristic_estimate_performance = False
-    slothy.config.split_heuristic_optimize_seam = 2
 
-    slothy.optimize_loop(loop_lbl='roundstart')
-    slothy.write_source_to_file("hybrid_keccak_optm55.s")
+    # second pass: splitting heuristic
+    # slothy.config.timeout = 100
+    # slothy.config.constraints.functional_only = False
+    # slothy.config.constraints.allow_reordering = True
+    # slothy.config.constraints.allow_spills = False
+    # slothy.config.absorb_spills = False
+    # slothy.config.variable_size=True
+    # slothy.config.constraints.stalls_first_attempt=64
+    # slothy.config.constraints.stalls_maximum_attempt = 4096
+    # slothy.config.split_heuristic = True
+    # slothy.config.split_heuristic_stepsize = 0.05
+    # slothy.config.split_heuristic_factor = 10
+    # slothy.config.split_heuristic_repeat = 2
+    # slothy.config.split_heuristic_estimate_performance = False
+    # slothy.config.split_heuristic_optimize_seam = 2
+
+    # slothy.optimize_loop(loop_lbl='roundstart')
+    # slothy.write_source_to_file("hybrid_keccak_optm55.s")
 
 if __name__ == '__main__':
     main()
