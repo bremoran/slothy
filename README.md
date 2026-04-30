@@ -23,6 +23,12 @@ SLOTHY is generic in the target architecture and microarchitecture. This reposit
 - AArch64: Cortex-A55, and experimentally Cortex-A72, Cortex-X/Neoverse-V, Apple M1 (Firestorm, Icestorm)
 - RISC-V (RV{32,64}IMB): XuanTie C908  
 
+For Armv8.1-M, SLOTHY models Helium predication with `VPT`/`VPST`, `VMSR`/`VMRS`,
+predicated MVE mnemonic suffixes (`...t`/`...e`), and `VPSEL`. `VPT` computes
+`P0` from a vector/scalar or vector/vector comparison, while `VPST` uses the
+current `P0`; their predicated consumers remain adjacent to the seed. `VPSEL`
+reads `P0` but does not consume a `VPT`/`VPST` slot.
+
 SLOTHY is discussed in [Fast and Clean: Auditable high-performance assembly via constraint solving](https://eprint.iacr.org/2022/1303).
 
 ### Goal

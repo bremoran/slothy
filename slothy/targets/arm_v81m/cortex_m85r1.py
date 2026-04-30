@@ -39,6 +39,7 @@
 from enum import Enum
 from slothy.helper import lookup_multidict
 from slothy.targets.arm_v81m.arch_v81m import (
+    add_predication_constraints,
     find_class,
     nop,
     ldr,
@@ -101,6 +102,7 @@ from slothy.targets.arm_v81m.arch_v81m import (
     vbic,
     vbic_nodt,
     vorr,
+    vorr_nodt,
     veor,
     veor_nodt,
     vmulh,
@@ -207,6 +209,12 @@ from slothy.targets.arm_v81m.arch_v81m import (
     ldrb_with_post,
     ldrb_regidx,
     is_dt_form_of,
+    vmsr,
+    vmrs,
+    vpst,
+    vpt_sv,
+    vpt_vv,
+    vpsel,
 )
 
 issue_rate = 1
@@ -249,6 +257,8 @@ class ExecutionUnit(Enum):
 # Opaque function called by SLOTHY to add further microarchitecture-
 # specific constraints which are not encapsulated by the general framework.
 def add_further_constraints(slothy):
+    add_predication_constraints(slothy)
+
     t0_t1 = slothy.get_inst_pairs(
         cond_fst=lambda t: not t.inst.is_load_store_instruction(),
         cond_snd=lambda t: t.inst.is_vector_load(),
@@ -334,6 +344,12 @@ execution_units = {
     and_imm: ExecutionUnit.SCALAR,
     sbfx: ExecutionUnit.SCALAR,
     ubfx: ExecutionUnit.SCALAR,
+    vmsr: ExecutionUnit.SCALAR,
+    vmrs: ExecutionUnit.SCALAR,
+    vpst: ExecutionUnit.VEC_PREDIC,
+    vpt_sv: ExecutionUnit.VEC_PREDIC,
+    vpt_vv: ExecutionUnit.VEC_PREDIC,
+    vpsel: ExecutionUnit.VEC_INT,
     add_imm: ExecutionUnit.SCALAR,
     orr_imm: ExecutionUnit.SCALAR,
     rsb_imm: ExecutionUnit.SCALAR,
@@ -376,6 +392,7 @@ execution_units = {
     vbic: [ExecutionUnit.VEC_BITWA, ExecutionUnit.VEC_BITWB],
     vbic_nodt: [ExecutionUnit.VEC_BITWA, ExecutionUnit.VEC_BITWB],
     vorr: [ExecutionUnit.VEC_BITWA, ExecutionUnit.VEC_BITWB],
+    vorr_nodt: [ExecutionUnit.VEC_BITWA, ExecutionUnit.VEC_BITWB],
     veor: [ExecutionUnit.VEC_BITWA, ExecutionUnit.VEC_BITWB],
     veor_nodt: [ExecutionUnit.VEC_BITWA, ExecutionUnit.VEC_BITWB],
     vmulh: ExecutionUnit.VEC_MUL,
@@ -542,6 +559,11 @@ inverse_throughput = {
         lsr_imm,
         lsl_imm,
         mul,
+        vmsr,
+        vmrs,
+        vpst,
+        vpt_sv,
+        vpt_vv,
     ): 1,
     (
         vrshr,
@@ -574,6 +596,7 @@ inverse_throughput = {
         vbic,
         vbic_nodt,
         vorr,
+        vorr_nodt,
         veor,
         veor_nodt,
         vmulh,
@@ -651,6 +674,7 @@ inverse_throughput = {
         vsubf,
         vsubf_T2,
         vaddva,
+        vpsel,
     ): 2,
     (vmulf_T1, vmulf_T2): 2,
     # MACs
@@ -715,6 +739,7 @@ default_latencies = {
         vbic,
         vbic_nodt,
         vorr,
+        vorr_nodt,
         veor,
         veor_nodt,
         qsave,
@@ -768,6 +793,12 @@ default_latencies = {
         and_imm,
         sbfx,
         ubfx,
+        vmsr,
+        vmrs,
+        vpst,
+        vpt_sv,
+        vpt_vv,
+        vpsel,
     ): 1,
     is_dt_form_of(vmullb, ["p8", "p16"]): 1,
     is_dt_form_of(vmullt, ["p8", "p16"]): 1,
@@ -951,6 +982,7 @@ def get_latency(src, out_idx, dst):
         vbic,
         vbic_nodt,
         vorr,
+        vorr_nodt,
         veor,
         veor_nodt,
         vrshr,

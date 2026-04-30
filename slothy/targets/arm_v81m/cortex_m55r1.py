@@ -39,6 +39,7 @@
 from enum import Enum
 from slothy.helper import lookup_multidict
 from slothy.targets.arm_v81m.arch_v81m import (
+    add_predication_constraints,
     find_class,
     nop,
     ldr,
@@ -101,6 +102,7 @@ from slothy.targets.arm_v81m.arch_v81m import (
     vbic,
     vbic_nodt,
     vorr,
+    vorr_nodt,
     veor,
     veor_nodt,
     vmulh,
@@ -206,6 +208,12 @@ from slothy.targets.arm_v81m.arch_v81m import (
     ldrb_with_writeback,
     ldrb_with_post,
     ldrb_regidx,
+    vmsr,
+    vmrs,
+    vpst,
+    vpt_sv,
+    vpt_vv,
+    vpsel,
 )
 
 issue_rate = 1
@@ -228,6 +236,7 @@ class ExecutionUnit(Enum):
 # Opaque function called by SLOTHY to add further microarchitecture-
 # specific constraints which are not encapsulated by the general framework.
 def add_further_constraints(slothy):
+    add_predication_constraints(slothy)
     _add_st_ld_hazard(slothy)
 
 
@@ -347,6 +356,12 @@ execution_units = {
     and_imm: ExecutionUnit.SCALAR,
     sbfx: ExecutionUnit.SCALAR,
     ubfx: ExecutionUnit.SCALAR,
+    vmsr: ExecutionUnit.SCALAR,
+    vmrs: ExecutionUnit.SCALAR,
+    vpst: ExecutionUnit.SCALAR,
+    vpt_sv: ExecutionUnit.SCALAR,
+    vpt_vv: ExecutionUnit.SCALAR,
+    vpsel: ExecutionUnit.VEC_INT,
     vshrnt: ExecutionUnit.VEC_INT,
     vshrnb: ExecutionUnit.VEC_INT,
     vrshr: ExecutionUnit.VEC_INT,
@@ -381,6 +396,7 @@ execution_units = {
     vbic: ExecutionUnit.VEC_INT,
     vbic_nodt: ExecutionUnit.VEC_INT,
     vorr: ExecutionUnit.VEC_INT,
+    vorr_nodt: ExecutionUnit.VEC_INT,
     veor: ExecutionUnit.VEC_INT,
     veor_nodt: ExecutionUnit.VEC_INT,
     vmulh: ExecutionUnit.VEC_MUL,
@@ -537,6 +553,11 @@ inverse_throughput = {
         sbfx,
         ubfx,
         mul,
+        vmsr,
+        vmrs,
+        vpst,
+        vpt_sv,
+        vpt_vv,
     ): 1,
     (
         vrshr,
@@ -568,6 +589,7 @@ inverse_throughput = {
         vbic,
         vbic_nodt,
         vorr,
+        vorr_nodt,
         veor,
         veor_nodt,
         vmulh,
@@ -651,6 +673,7 @@ inverse_throughput = {
         vmulf_T2,
         vfma,
         vmov_vector,
+        vpsel,
     ): 2,
 }
 
@@ -714,6 +737,7 @@ default_latencies = {
         vbic,
         vbic_nodt,
         vorr,
+        vorr_nodt,
         veor,
         veor_nodt,
         qsave,
@@ -767,6 +791,12 @@ default_latencies = {
         and_imm,
         sbfx,
         ubfx,
+        vmsr,
+        vmrs,
+        vpst,
+        vpt_sv,
+        vpt_vv,
+        vpsel,
     ): 1,
     (
         add_shifted,
@@ -907,6 +937,7 @@ def get_latency(src, out_idx, dst):
         vbic,
         vbic_nodt,
         vorr,
+        vorr_nodt,
         veor,
         veor_nodt,
         vrshr,

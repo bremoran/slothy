@@ -442,4 +442,27 @@ ldrb r5, [r12, r5]
 sbfx r6, r5, #0, #1
 ubfx r9, r9, #8, #4
 
+
+vmsr p0, r3
+vmrs r1, p0
+
+vptte.u32 ge, q0, r1
+vaddt.u32 q0, q1, q2
+vaddt.u32 q6, q7, q0
+vsube.u32 q3, q4, q5
+
+vptt.s16 lt, q2, q3
+vaddt.s16 q6, q7, q0
+vaddt.s16 q1, q2, q3
+
+vpstt
+vaddt.u32 q0, q1, q2
+vaddt.u32 q6, q7, q0
+
+vpstee
+vaddt.u32 q3, q4, q5
+vadde.u32 q6, q7, q0
+vadde.u32 q0, q1, q2
+
+vpsel q0, q1, q2
 end:

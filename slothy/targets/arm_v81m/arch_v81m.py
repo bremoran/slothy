@@ -62,6 +62,7 @@ class RegisterType(Enum):
     StackMVE = (3,)
     StackGPR = (4,)
     HINT = (5,)
+    PRED = (6,)
 
     def __str__(self):
         return self.name
@@ -73,6 +74,9 @@ class RegisterType(Enum):
     def is_renamed(ty):
         """Indicate if register type should be subject to renaming"""
         if ty == RegisterType.HINT:
+            return False
+        if ty == RegisterType.PRED:
+            # Single logical predicate register (p0) should not be renamed
             return False
         return True
 
@@ -111,6 +115,7 @@ class RegisterType(Enum):
             RegisterType.StackMVE: qstack_locations,
             RegisterType.MVE: vregs,
             RegisterType.HINT: [],
+            RegisterType.PRED: ["p0"],
         }[reg_type]
 
     @staticmethod
@@ -133,6 +138,7 @@ class RegisterType(Enum):
             "mve": RegisterType.MVE,
             "gpr": RegisterType.GPR,
             "hint": RegisterType.HINT,
+            "pred": RegisterType.PRED,
         }.get(string, None)
 
     def default_aliases():
@@ -140,7 +146,11 @@ class RegisterType(Enum):
 
     def default_reserved():
         """Return the list of registers that should be reserved by default"""
-        return set(["r13", "r14"] + RegisterType.list_registers(RegisterType.HINT))
+        return set(
+            ["r13", "r14"]
+            + RegisterType.list_registers(RegisterType.HINT)
+            + RegisterType.list_registers(RegisterType.PRED)
+        )
 
 
 class LeLoop(Loop):
@@ -241,6 +251,30 @@ class Instruction:
         self.index = None
         self.flag = None
         self.barrel = None
+        self.condition = None
+        self.mask = None
+        self.predicated = False
+        self.predicate_kind = None
+        self.pred_block_id = None
+        self.pred_slot_index = None
+
+    def _add_hidden_input(self, reg, ty):
+        self.args_in.append(reg)
+        self.arg_types_in.append(ty)
+        self.args_in_restrictions.append(None)
+        self.num_in += 1
+
+    def _add_hidden_output(self, reg, ty):
+        self.args_out.append(reg)
+        self.arg_types_out.append(ty)
+        self.args_out_restrictions.append(None)
+        self.num_out += 1
+
+    def is_predication_seed(self):
+        return False
+
+    def consumes_predicate_slot(self):
+        return self.predicated
 
     def extract_read_writes(self):
         """Extracts 'reads'/'writes' clauses from the source line of the instruction"""
@@ -611,7 +645,8 @@ class MVEInstruction(Instruction):
                 f"<(?P<symbol_{g.group(1)}{g.group(2)}>\\w+)>))"
             )
 
-        src = re.sub(r"<([QR])(\w+)>", pattern_transform, src)
+        # Support Q (MVE), R (GPR) and P (predicate) placeholders
+        src = re.sub(r"<([QRP])(\w+)>", pattern_transform, src)
 
         # Replace <key> or <key0>, <key1>, ... with pattern
         def replace_placeholders(src, mnemonic_key, regexp, group_name):
@@ -639,12 +674,16 @@ class MVEInstruction(Instruction):
         )
         index_pattern = "[0-9]+"
         barrel_pattern = "(?:lsl|ror|lsr|asr)\\\\s*"
+        mask_pattern = "[tTeE]{0,3}"
+        fc_pattern = "[a-zA-Z][a-zA-Z0-9_]*"
 
         src = replace_placeholders(src, "imm", imm_pattern, "imm")
         src = replace_placeholders(src, "dt", dt_pattern, "datatype")
         src = replace_placeholders(src, "fdt", fdt_pattern, "datatype")
         src = replace_placeholders(src, "index", index_pattern, "index")
         src = replace_placeholders(src, "barrel", barrel_pattern, "barrel")
+        src = replace_placeholders(src, "mask", mask_pattern, "mask")
+        src = replace_placeholders(src, "fc", fc_pattern, "condition")
 
         src = r"\s*" + src + r"\s*(//.*)?\Z"
         return src
@@ -690,6 +729,8 @@ class MVEInstruction(Instruction):
             return RegisterType.GPR
         if ptrn[0].upper() in ["Q"]:
             return RegisterType.MVE
+        if ptrn[0].upper() in ["P"]:
+            return RegisterType.PRED
         raise FatalParsingException(f"Unknown pattern: {ptrn}")
 
     def __init__(
@@ -749,6 +790,8 @@ class MVEInstruction(Instruction):
             c = "r"
         elif ty == RegisterType.MVE:
             c = "q"
+        elif ty == RegisterType.PRED:
+            c = "p"
         else:
             assert False
         if s.replace("_", "").isdigit():
@@ -763,6 +806,10 @@ class MVEInstruction(Instruction):
             return s[0].lower() + arg[1:]
         if ty == RegisterType.MVE:
             if arg[0] != "q":
+                return f"{s[0].upper()}<{arg}>"
+            return s[0].lower() + arg[1:]
+        if ty == RegisterType.PRED:
+            if arg[0] != "p":
                 return f"{s[0].upper()}<{arg}>"
             return s[0].lower() + arg[1:]
         raise FatalParsingException(f"Unknown register type ({s}, {ty}, {arg})")
@@ -806,6 +853,8 @@ class MVEInstruction(Instruction):
         )  # Strip '#'
         group_to_attribute("index", "index", int)
         group_to_attribute("barrel", "barrel")
+        group_to_attribute("mask", "mask", lambda x: x.lower())
+        group_to_attribute("condition", "condition", lambda x: x.lower())
 
         for s, ty in obj.pattern_inputs:
             # if ty == RegisterType.FLAGS:
@@ -829,13 +878,31 @@ class MVEInstruction(Instruction):
         in_outs = getattr(c, "in_outs", []).copy()
         modifies_flags = getattr(c, "modifiesFlags", False)
         depends_on_flags = getattr(c, "dependsOnFlags", False)
+        predicated = False
+        predicate_kind = None
         if isinstance(src, str):
+            src_to_parse = src
+            src_mnemonic = src.split()[0]
+            src_base = src_mnemonic.split(".")[0]
+            pattern_base = pattern.split()[0].split(".")[0]
+            predication_excluded = ["vmsr", "vmrs", "vpst", "vpt", "vpsel"]
             if (
-                src.split(".")[0] != pattern.split(".")[0]
-                and src.split(" ")[0] != pattern.split(" ")[0]
+                src_base != pattern_base
+                and pattern_base.startswith("v")
+                and pattern_base not in predication_excluded
+                and src_base[-1:] in ["t", "e"]
+            ):
+                unpredicated_base = src_base[:-1]
+                if unpredicated_base == pattern_base:
+                    predicated = True
+                    predicate_kind = src_base[-1]
+                    src_to_parse = src.replace(src_base, unpredicated_base, 1)
+            if (
+                src_to_parse.split(".")[0] != pattern.split(".")[0]
+                and src_to_parse.split(" ")[0] != pattern.split(" ")[0]
             ):
                 raise ParsingException("Mnemonic does not match")
-            res = MVEInstruction.get_parser(pattern)(src)
+            res = MVEInstruction.get_parser(pattern)(src_to_parse)
         else:
             assert isinstance(src, dict)
             res = src
@@ -849,6 +916,10 @@ class MVEInstruction(Instruction):
             dependsOnFlags=depends_on_flags,
         )
         MVEInstruction.build_core(obj, res)
+        obj.predicated = predicated
+        obj.predicate_kind = predicate_kind
+        if predicated:
+            obj._add_hidden_input("p0", RegisterType.PRED)
 
         return obj
 
@@ -888,6 +959,17 @@ class MVEInstruction(Instruction):
         out = replace_pattern(out, "datatype", "fdt", lambda x: x.upper())
         out = replace_pattern(out, "index", "index", str)
         out = replace_pattern(out, "barrel", "barrel", lambda x: x.lower())
+        out = replace_pattern(out, "mask", "mask", lambda x: x.lower())
+        out = replace_pattern(out, "condition", "fc", lambda x: x.lower())
+
+        if self.predicated:
+            mnemonic = out.split()[0]
+            if "." in mnemonic:
+                base, suffix = mnemonic.split(".", 1)
+                pred_mnemonic = f"{base}{self.predicate_kind}.{suffix}"
+            else:
+                pred_mnemonic = f"{mnemonic}{self.predicate_kind}"
+            out = out.replace(mnemonic, pred_mnemonic, 1)
 
         out = out.replace("\\[", "[")
         out = out.replace("\\]", "]")
@@ -895,6 +977,158 @@ class MVEInstruction(Instruction):
 
 
 # Virtual instruction to model pushing to stack locations without modelling memory
+
+
+class vmsr(MVEInstruction):
+    pattern = "vmsr <Pp>, <Rn>"
+    inputs = ["Rn"]
+    outputs = ["Pp"]
+
+
+class vmrs(MVEInstruction):
+    pattern = "vmrs <Rd>, <Pp>"
+    inputs = ["Pp"]
+    outputs = ["Rd"]
+
+
+class vpst(MVEInstruction):
+    pattern = "vpst<mask>"
+
+    @classmethod
+    def make(cls, src):
+        obj = MVEInstruction.build(cls, MVEInstruction.get_parser(cls.pattern)(src))
+        obj._add_hidden_input("p0", RegisterType.PRED)
+        return obj
+
+    def is_predication_seed(self):
+        return True
+
+
+class vpt_sv(MVEInstruction):
+    pattern = "vpt<mask>.<dt> <fc>, <Qn>, <Rm>"
+    inputs = ["Qn", "Rm"]
+
+    @classmethod
+    def make(cls, src):
+        obj = MVEInstruction.build(cls, MVEInstruction.get_parser(cls.pattern)(src))
+        obj._add_hidden_output("p0", RegisterType.PRED)
+        return obj
+
+    def is_predication_seed(self):
+        return True
+
+
+class vpt_vv(MVEInstruction):
+    pattern = "vpt<mask>.<dt> <fc>, <Qn>, <Qm>"
+    inputs = ["Qn", "Qm"]
+
+    @classmethod
+    def make(cls, src):
+        obj = MVEInstruction.build(cls, MVEInstruction.get_parser(cls.pattern)(src))
+        obj._add_hidden_output("p0", RegisterType.PRED)
+        return obj
+
+    def is_predication_seed(self):
+        return True
+
+
+class vpsel(MVEInstruction):
+    pattern = "vpsel <Qd>, <Qn>, <Qm>"
+    inputs = ["Qn", "Qm"]
+    outputs = ["Qd"]
+
+    @classmethod
+    def make(cls, src):
+        obj = MVEInstruction.build(cls, src)
+        obj._add_hidden_input("p0", RegisterType.PRED)
+        return obj
+
+    def consumes_predicate_slot(self):
+        return False
+
+
+def _predicate_block_kinds(seed):
+    return ["t"] + list(seed.mask or "")
+
+
+def assign_predication_slots(nodes):
+    ordered_nodes = sorted(
+        [t for t in nodes if getattr(t, "orig_pos", None) is not None],
+        key=lambda t: t.orig_pos,
+    )
+    pos_to_index = {t.orig_pos: idx for idx, t in enumerate(ordered_nodes)}
+    covered = set()
+
+    for block_id, seed_node in enumerate(
+        t for t in ordered_nodes if t.inst.is_predication_seed()
+    ):
+        seed = seed_node.inst
+        expected_kinds = _predicate_block_kinds(seed)
+        seed.pred_block_id = block_id
+        seed.pred_block_len = len(expected_kinds)
+        seed_index = pos_to_index[seed_node.orig_pos]
+
+        for slot_index, expected_kind in enumerate(expected_kinds):
+            consumer_index = seed_index + slot_index + 1
+            if consumer_index >= len(ordered_nodes):
+                raise FatalParsingException(
+                    f"{seed.write()} expects {len(expected_kinds)} predicated "
+                    "consumer instruction(s), but the block ends early"
+                )
+            consumer = ordered_nodes[consumer_index].inst
+            if not consumer.consumes_predicate_slot():
+                raise FatalParsingException(
+                    f"{seed.write()} expects predicated slot {slot_index + 1} "
+                    f"to be {expected_kind}, found {consumer.write()}"
+                )
+            if consumer.predicate_kind != expected_kind:
+                raise FatalParsingException(
+                    f"{seed.write()} expects predicate kind {expected_kind} "
+                    f"in slot {slot_index + 1}, found {consumer.predicate_kind}"
+                )
+            consumer.pred_block_id = block_id
+            consumer.pred_slot_index = slot_index
+            covered.add(ordered_nodes[consumer_index])
+
+    for node in ordered_nodes:
+        if node.inst.consumes_predicate_slot() and node not in covered:
+            raise FatalParsingException(
+                f"Predicated instruction {node.inst.write()} is not covered "
+                "by a preceding VPT/VPST block"
+            )
+
+
+def add_predication_constraints(slothy):
+    assign_predication_slots(slothy._model.tree.nodes)
+    for seed_node in slothy._model.tree.nodes:
+        if not seed_node.inst.is_predication_seed():
+            continue
+        block_id = seed_node.inst.pred_block_id
+        consumers = sorted(
+            [
+                t
+                for t in slothy._model.tree.nodes
+                if t.inst.pred_block_id == block_id and t.inst.consumes_predicate_slot()
+            ],
+            key=lambda t: t.inst.pred_slot_index,
+        )
+        previous = seed_node
+        for consumer in consumers:
+            slothy._Add(consumer.program_start_var > previous.program_start_var)
+            previous = consumer
+
+        last_node = consumers[-1]
+        block_nodes = set([seed_node] + consumers)
+        for other in slothy._model.tree.nodes:
+            if other in block_nodes:
+                continue
+            before_block = slothy._NewBoolVar("")
+            slothy._Add(
+                other.program_start_var < seed_node.program_start_var
+            ).OnlyEnforceIf(before_block)
+            slothy._Add(
+                other.program_start_var > last_node.program_start_var
+            ).OnlyEnforceIf(before_block.Not())
 
 
 class qsave(Instruction):
@@ -1637,6 +1871,12 @@ class vbic_nodt(MVEInstruction):
 
 class vorr(MVEInstruction):
     pattern = "vorr.<dt> <Qd>, <Qn>, <Qm>"
+    inputs = ["Qn", "Qm"]
+    outputs = ["Qd"]
+
+
+class vorr_nodt(MVEInstruction):
+    pattern = "vorr <Qd>, <Qn>, <Qm>"
     inputs = ["Qn", "Qm"]
     outputs = ["Qd"]
 
@@ -2727,6 +2967,7 @@ def vqdmlsdh_vqdmladhx_parsing_cb(this_class, other_class):
 vqdmlsdh.global_parsing_cb = vqdmlsdh_vqdmladhx_parsing_cb(vqdmlsdh, vqdmladhx)
 vqdmladhx.global_parsing_cb = vqdmlsdh_vqdmladhx_parsing_cb(vqdmladhx, vqdmlsdh)
 
+
 def vmov_double_r2v_parsing_cb(this_class):
     def mark_outputs_only(inst):
         inst.num_out = len(inst.args_in_out)
@@ -2810,12 +3051,14 @@ def vmov_double_r2v_parsing_cb(this_class):
             return False
 
         mark_outputs_only(inst)
+        mark_outputs_only(succ.inst)
         return True
 
     return core
 
 
 vmov_double_r2v.global_parsing_cb = vmov_double_r2v_parsing_cb(vmov_double_r2v)
+
 
 # Returns the list of all subclasses of a class which don't have
 # subclasses themselves

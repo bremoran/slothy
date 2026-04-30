@@ -936,6 +936,9 @@ class DataFlowGraph:
 
         for idx, t in enumerate(self.nodes):
             for i, c in enumerate(t.inst.args_out):
+                ty = t.inst.arg_types_out[i]
+                if self.arch.RegisterType.is_renamed(ty) is False:
+                    continue
                 if c in self.config._locked_registers or (t, i) in no_ssa:
                     continue
                 if filter_func is not None and filter_func(t, i) is False:
